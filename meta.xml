@@ -1,0 +1,14 @@
+<client>
+	<name>twittershell</name>
+	<version>1.0</version>
+	<author>
+		<name>Ashwin Phatak</name>
+		<email>ashwinpphatak@gmail.com</email>
+		<twitter>ashwinphatak</twitter>
+	</author>
+	<url>http://code.google.com/p/twittershell/</url>
+	<twitter>twsh</twitter>
+	<description><[CDATA[
+	 twittershell is a UNIX/DOS shell like interface written in Python for using Twitter through the command line.	It presents a prompt to the user, who can type in commands for updating the status, getting the list of friends, sending direct messages to friends, etc. See the documentation for detailed usage. 
+	]]>
+</client>

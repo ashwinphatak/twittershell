@@ -1,0 +1,378 @@
+#!/usr/bin/python
+COPYRIGHT = '''twittershell - Shell like interface for Twitter
+Copyright (C) 2008 Ashwin Phatak (ashwinpphatak (at) gmail.com)
+
+This program is free software; you can redistribute it and/or
+modify it under the terms of the GNU General Public License
+as published by the Free Software Foundation; either version 2
+of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+'''
+
+import sys
+import cmd
+import urllib2
+
+# constants
+AUTH_NOT_DONE = 'User is not authenticated. Use the "login" command for authentication'
+NOTICE = '''twittershell, Copyright (C) 2008 Ashwin Phatak
+twittershell comes with ABSOLUTELY NO WARRANTY; type 'copyright' for details.
+
+'''
+TWITTER_MODULE_ERROR = '''Ouch! Looks like you don't have the python-twitter module installed. This module is necessary for twittershell to work.
+Please download and install it from http://code.google.com/p/python-twitter'''
+
+KEYRING_MODULE_ERROR = '''Ouch! Looks like you don't have the keyring module installed. This module is necessary for twittershell to work.
+Please download and install it from http://pypi.python.org/pypi/keyring'''
+
+DEFAULT_MSG_COUNT = 10
+
+# check if the twitter module is present
+try:
+	import twitter
+except ImportError, e:
+	print TWITTER_MODULE_ERROR
+	sys.exit(0)
+
+# check if the keyring module is present
+try:
+	import keyring
+except ImportError, e:
+	print KEYRING_MODULE_ERROR
+	sys.exit(0)
+
+def unescape(line):
+	line = line.replace('&lt;', '<')
+	line = line.replace('&gt;', '>')
+	return line
+
+class TwitCmd(cmd.Cmd):
+	api = twitter.Api()
+	args = []
+	auth_done = False
+	friends = []
+	mode = 'interactive'
+
+	def parse_args(self, line):
+		self.args = line.strip().split(' ')
+		if '' in self.args:
+			self.args.remove('')
+
+	def do_exit(self, line):
+		sys.exit(0)
+
+	def help_exit(self):
+		print 'Exits the program.'
+
+	def do_quit(self, line):
+		sys.exit(0)
+
+	def help_quit(self):
+		print 'Exits the program.'
+
+	def do_login(self, line):
+		self.parse_args(line)
+
+		if len(self.args) != 1:
+			self.help_login()
+		else:
+			try:
+				passwd = keyring.get_password("twsh", self.args[0])
+				if passwd is None or passwd == "":
+					import getpass
+					passwd = getpass.getpass("Enter your password:\n")
+					keyring.set_password('twsh', self.args[0], passwd)
+					
+
+				self.api = twitter.Api(username = self.args[0], password = passwd)
+				self.set_attr_headers()
+				self.auth_done = True
+				
+
+
+				users = self.api.GetFriends()
+				self.friends = [u.screen_name for u in users]
+				self.friends.sort()
+
+				# print status updates from friends
+				if self.mode == 'interactive':
+					self.onecmd('status')
+			except twitter.TwitterError, e:
+				print 'Error: ' + str(e)
+			except urllib2.HTTPError, e:
+				print str(e)
+
+	def help_login(self):
+		print 'login <username>'
+
+	def do_update(self, line):
+		if not self.auth_done:
+			print AUTH_NOT_DONE 
+			return
+
+		line = line.strip()
+		if line == "":
+			print 'update <status>'
+		else:
+			try:
+				self.api.PostUpdate(line)
+			except twitter.TwitterError, e:
+				print 'Error: ' + str(e)
+			except urllib2.HTTPError, e:
+				print str(e)
+
+	def help_update(self):
+		print 'update <status>'
+		print 'Updates your Twitter status.'
+
+	def do_friends(self, line):
+		if not self.auth_done:
+			print AUTH_NOT_DONE
+			return
+
+		try:
+			users = self.api.GetFriends()
+			names = [u.screen_name for u in users]
+			self.friends = names
+			self.friends.sort()
+
+			print ', '.join(self.friends)
+
+		except twitter.TwitterError, e:
+			print 'Error: ' + str(e)
+		except urllib2.HTTPError, e:
+			print str(e)
+
+	def help_friends(self):
+		print 'friends'
+		print 'Prints the list of your friends.'
+
+	def do_tell(self, line):
+		if not self.auth_done:
+			print AUTH_NOT_DONE
+			return
+			
+		self.parse_args(line)
+
+		if len(self.args) < 2:
+			self.help_tell()
+		else:
+			if self.args[0] not in self.friends:
+				print '%s is not your friend' % self.args[0]
+			else:
+				try:
+					self.api.PostDirectMessage(self.args[0], ' '.join(self.args[1:]))
+				except twitter.TwitterError, e:
+					print 'Error: ' + str(e)
+				except urllib2.HTTPError, e:
+					print str(e)
+
+	def help_tell(self):
+		print 'tell <user> <message>'
+		print 'Sends a direct message to your friend.'
+
+	def complete_tell(self, text, line, begidx, endidx):
+		matches = [name for name in self.friends if name.startswith(text)]
+		return matches
+
+	def do_direct(self, line):
+		if not self.auth_done:
+			print AUTH_NOT_DONE
+			return
+			
+		self.parse_args(line.strip())
+
+		if len(self.args) != 0:
+			self.help_direct()
+		else:
+			try:
+				msgs = self.api.GetDirectMessages()
+				if len(msgs) > DEFAULT_MSG_COUNT:
+					msgs = msgs[:DEFAULT_MSG_COUNT]
+
+				for m in msgs:
+					print m.sender_screen_name + ': ' + unescape(m.text)  
+
+			except twitter.TwitterError, e:
+				print 'Error: ' + str(e)	
+			except urllib2.HTTPError, e:
+				print str(e)
+
+	def help_direct(self):
+		print 'direct'
+		print 'Prints the direct messages sent to you recently.'
+
+	def do_timeline(self, line):
+		if not self.auth_done:
+			print AUTH_NOT_DONE
+			return
+			
+		self.parse_args(line)
+
+		# default values
+		user = None
+		count = DEFAULT_MSG_COUNT
+
+			
+		if len(self.args) > 2:
+			self.help_timeline()
+		else:
+			if len(self.args) == 1:
+				# check if a count or user is specified
+				try:
+					count = int(self.args[0])
+				except ValueError, e:
+					# user has been specified
+					user = self.args[0]
+
+			elif len(self.args) == 2:
+				user = self.args[0]
+				try:
+					count = int(self.args[1])
+				except ValueError, e:
+					print 'Invalid count'
+					self.help_timeline()
+					return
+
+			try:
+				statuses = self.api.GetUserTimeline(user, count)
+				for s in statuses:
+					print '- ' +  unescape(s.text)
+
+			except twitter.TwitterError, e:
+				print 'Error: ' + str(e)
+			except urllib2.HTTPError, e:
+				print str(e)
+
+
+	def complete_timeline(self, text, line, begidx, endidx):
+		matches = [name for name in self.friends if name.startswith(text)]
+		return matches
+
+	def help_timeline(self):
+		print 'timeline [<user>] [<count>]'
+		print 'Gets the timeline for the given user.'
+		print '<user> and <count> arguments are both optional.'
+		print 'If no user is specified, the currently logged in user is assumed. The default count is ' + str(DEFAULT_MSG_COUNT) + '.'
+
+	def do_status(self, line):
+		if not self.auth_done:
+			print AUTH_NOT_DONE
+			return
+			
+		self.parse_args(line)
+
+		# default values
+		count = DEFAULT_MSG_COUNT
+			
+		if len(self.args) > 1:
+			self.help_status()
+		else:
+			if len(self.args) == 1:
+				# check count
+				try:
+					count = int(self.args[0])
+				except ValueError, e:
+					print 'Invalid count'
+					self.help_status()
+					return
+
+			try:
+				statuses = self.api.GetFriendsTimeline()
+				if len(statuses) > count:
+					statuses = statuses[:count]
+
+				for s in statuses:
+					print s.user.screen_name + ': ' +  unescape(s.text)
+
+			except twitter.TwitterError, e:
+				print 'Error: ' + str(e)
+			except urllib2.HTTPError, e:
+				print str(e)
+
+
+	def help_status(self):
+		print 'status [<count>]'
+		print 'Gets the status updates for your friends.'
+		print 'The <count> argument is optional.'
+
+
+	def do_followers(self, line):
+		if not self.auth_done:
+			print AUTH_NOT_DONE
+			return
+
+		try:
+			users = self.api.GetFollowers()
+			names = [u.screen_name for u in users]
+			names.sort()
+			print ', '.join(names)
+
+		except twitter.TwitterError, e:
+			print 'Error: ' + str(e)
+		except urllib2.HTTPError, e:
+			print str(e)
+
+	def help_followers(self):
+		print 'followers'
+		print 'Prints the list of your followers'
+
+	def do_replies(self, line):
+		if not self.auth_done:
+			print AUTH_NOT_DONE
+			return
+
+		try:
+			statuses = self.api.GetReplies()
+			for s in statuses:
+				print s.user.screen_name + ': ' +  unescape(s.text)
+
+		except twitter.TwitterError, e:
+			print 'Error: ' + str(e)
+		except urllib2.HTTPError, e:
+			print str(e)
+
+	def help_replies(self):
+		print 'replies'
+		print 'Prints the recent replies (status updates prefixed with @username) sent to you.'
+
+	def emptyline(self):
+		pass
+
+	def do_copyright(self, line):
+		print COPYRIGHT 
+
+	def help_copyright(self):
+		print 'Prints the copyright notice for this program.'
+
+
+	def set_attr_headers(self):
+		self.api.SetXTwitterHeaders('"twittershell"',
+					'"http://ashwinphatak.com/meta.xml"',
+					'"1.0"')
+		self.api.SetUserAgent('"twittershell/1.0"')
+
+	def set_mode(self, mode):
+		self.mode = mode
+
+if __name__ == '__main__':
+	shell = TwitCmd()
+	shell.set_attr_headers()
+	shell.prompt = '>'
+
+	if len(sys.argv) == 2:
+		shell.set_mode('script')
+		for line in open(sys.argv[1]):
+			shell.onecmd(line)	
+	else:
+		shell.cmdloop(NOTICE + 'Welcome to Twitter Shell!')
+
+
